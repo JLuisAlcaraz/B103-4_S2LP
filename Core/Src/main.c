@@ -44,7 +44,9 @@
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
+volatile uint8_t rx_flag = 0;
+uint8_t tx_buff[4] = {0xAA, 0xBB, 0xCC, 0xDD};
+uint8_t rx_buff[4];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -55,7 +57,13 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+    if (GPIO_Pin == S2LP_GPIO0_Pin) // IRQ pin del S2-LP
+    {
+        rx_flag = 1;
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -66,7 +74,7 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-	uint8_t buffRx[20];
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -89,33 +97,47 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   /* USER CODE BEGIN 2 */
-  S2LP_Init();
-  S2LP_Config868();
-  //S2LP_StartRx();
-  S2LP_StartTx();
-  uint8_t rx[32];
+	S2LP_SdnHigh();
+	HAL_Delay(50);
+	S2LP_SdnLow();
+	HAL_Delay(50);
+
+	S2LP_Init_Minima_Registros();
+	uint8_t longitud_paquete = S2LP_ReadReg(S2LP_REG_PCKT_LEN);
+	if (longitud_paquete == 4) {
+	    // ¡Éxito! El chip S2-LP está vivo, respondiendo y configurado a 4 bytes fijos.
+	}
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	  /* Modo Tx
-	  S2LP_SendPacket("HOLA", 4); //Modo TX
 	  HAL_GPIO_TogglePin(LED_AZUL_GPIO_Port, LED_AZUL_Pin);
-	  HAL_Delay(500);
-	  */
+	  uint8_t estado = S2LP_GetStatus();
+	  if(estado == 0x29)
+	  {
+	        // Secuencia oficial de recuperación en caliente para S2-LP
+	        S2LP_SendCommand(S2LP_CMD_SABORT);     // Rompe el bloqueo analógico
+	        HAL_Delay(2);
+	        S2LP_SendCommand(S2LP_CMD_SREADY);     // Fuerza a regresar a estado Ready normal
+	        HAL_Delay(2);
+	        S2LP_SendCommand(S2LP_CMD_SFLUSH_RX);           // Limpia el buffer de entrada (SFLUSH_RX)
+	        HAL_Delay(2);
+	  }
+	  //Modo Tx
+		S2LP_SendCommand(S2LP_CMD_SFLUSH_TX);
+		S2LP_WriteTXFIFO(tx_buff, 4);
+		S2LP_SendCommand(S2LP_CMD_STX);
+		HAL_Delay(100);
 
-	uint8_t len = S2LP_ReceivePacket(rx);
-
-	if (len > 0)
-	{
-		if (memcmp(rx, "HOLA", 4) == 0)
-		{
-			uint8_t ok[] = "OK";
-			S2LP_SendPacket(&radio, ok, 2);
-		}
-	}
+	  //Modo Rx
+	  	//S2LP_SendCommand(S2LP_CMD_SABORT);
+		//S2LP_SendCommand(S2LP_CMD_SFLUSH_RX);
+		//S2LP_SendCommand(S2LP_CMD_SRX);
+		//HAL_Delay(10);
+		//estado = S2LP_GetStatus();
+		//S2LP_ReadRXFIFO(rx_buff, 4);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
